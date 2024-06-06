@@ -19,9 +19,9 @@ from sae_lens.training.training_sae import TrainingSAE
 from tests.unit.helpers import TINYSTORIES_MODEL, build_sae_cfg, load_model_cached
 
 
-@pytest.fixture
-def cfg():
-    cfg = build_sae_cfg(d_in=64, d_sae=128, hook_layer=0)
+@pytest.fixture(params=["standard", "gated"])
+def cfg(request: Any):
+    cfg = build_sae_cfg(d_in=64, d_sae=128, hook_layer=0, architecture=request.param)
     return cfg
 
 
@@ -172,6 +172,7 @@ def test_build_train_step_log_dict(trainer: SAETrainer) -> None:
         mse_loss=0.25,
         l1_loss=0.1,
         ghost_grad_loss=0.15,
+        gated_aux_loss=0.28,
     )
 
     # we're relying on the trainer only for some of the metrics here
@@ -185,6 +186,7 @@ def test_build_train_step_log_dict(trainer: SAETrainer) -> None:
         # l1 loss is scaled by l1_coefficient
         "losses/l1_loss": train_output.l1_loss / trainer.cfg.l1_coefficient,
         "losses/ghost_grad_loss": pytest.approx(0.15),
+        "losses/gated_aux_loss": pytest.approx(0.28),
         "losses/overall_loss": 0.5,
         "metrics/explained_variance": 0.75,
         "metrics/explained_variance_std": 0.25,

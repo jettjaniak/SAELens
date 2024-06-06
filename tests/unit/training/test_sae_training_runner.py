@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 from datasets import Dataset
@@ -14,9 +15,15 @@ from sae_lens.training.training_sae import TrainingSAE
 from tests.unit.helpers import TINYSTORIES_MODEL, build_sae_cfg, load_model_cached
 
 
-@pytest.fixture
-def cfg(tmp_path: Path):
-    cfg = build_sae_cfg(d_in=64, d_sae=128, hook_layer=0, checkpoint_path=str(tmp_path))
+@pytest.fixture(params=["standard", "gated"])
+def cfg(request: Any, tmp_path: Path):
+    cfg = build_sae_cfg(
+        d_in=64,
+        d_sae=128,
+        hook_layer=0,
+        architecture=request.param,
+        checkpoint_path=str(tmp_path),
+    )
     return cfg
 
 

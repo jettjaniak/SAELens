@@ -40,6 +40,7 @@ class LanguageModelSAERunnerConfig:
         cached_activations_path (str, optional): The path to the cached activations.
         d_in (int): The input dimension of the SAE.
         d_sae (int, optional): The output dimension of the SAE. If None, defaults to `d_in * expansion_factor`.
+        architecture (str): The SAE architecture to use, `standard` or `gated`, `standard` is the default.
         b_dec_init_method (str): The method to use to initialize the decoder bias. Zeros is likely fine.
         expansion_factor (int): The expansion factor. Larger is better but more computationally expensive.
         activation_fn (str): The activation function to use. Relu is standard.
@@ -124,6 +125,7 @@ class LanguageModelSAERunnerConfig:
     # SAE Parameters
     d_in: int = 512
     d_sae: Optional[int] = None
+    architecture: str = "standard"
     b_dec_init_method: str = "geometric_median"
     expansion_factor: int = 4
     activation_fn: str = "relu"  # relu, tanh-relu
@@ -338,6 +340,7 @@ class LanguageModelSAERunnerConfig:
         return {
             "d_in": self.d_in,
             "d_sae": self.d_sae,
+            "architecture": self.architecture,
             "dtype": self.dtype,
             "device": self.device,
             "model_name": self.model_name,

@@ -27,6 +27,7 @@ class TrainStepOutput:
     mse_loss: float
     l1_loss: float
     ghost_grad_loss: float
+    gated_aux_loss: float
 
 
 @dataclass
@@ -53,6 +54,7 @@ class TrainingSAEConfig(SAEConfig):
             # base confg
             d_in=cfg.d_in,
             d_sae=cfg.d_sae,  # type: ignore
+            architecture=cfg.architecture,
             dtype=cfg.dtype,
             device=cfg.device,
             model_name=cfg.model_name,
@@ -106,6 +108,7 @@ class TrainingSAEConfig(SAEConfig):
         return {
             "d_in": self.d_in,
             "d_sae": self.d_sae,
+            "architecture": self.architecture,
             "activation_fn_str": self.activation_fn_str,
             "apply_b_dec_to_input": self.apply_b_dec_to_input,
             "dtype": self.dtype,
@@ -168,12 +171,28 @@ class TrainingSAE(SAE):
         # apply b_dec_to_input if using that method.
         sae_in = self.hook_sae_input(x - (self.b_dec * self.cfg.apply_b_dec_to_input))
 
-        # "... d_in, d_in d_sae -> ... d_sae",
-        hidden_pre = self.hook_sae_acts_pre(sae_in @ self.W_enc + self.b_enc)
-        hidden_pre_noised = hidden_pre + (
-            torch.randn_like(hidden_pre) * self.cfg.noise_scale * self.training
-        )
-        feature_acts = self.hook_sae_acts_post(self.activation_fn(hidden_pre_noised))
+        if self.cfg.architecture == "gated":
+            # TODO: pre-act hooks
+            b_gate = self.b_enc
+            # "... d_in, d_in d_sae -> ... d_sae"
+            z = sae_in @ self.W_enc
+            pre_acts_mag = torch.exp(self.r_mag) * z + self.b_mag
+            acts_mag = self.activation_fn(pre_acts_mag)
+            pre_acts_gate = z + b_gate
+            acts_gate = (pre_acts_gate > 0).float()
+            feature_acts = acts_gate * acts_mag
+            # FIXME: should we add noise at all? if so, to the gate or to the mag?
+            hidden_pre_noised = pre_acts_gate + (
+                torch.randn_like(pre_acts_gate) * self.cfg.noise_scale * self.training
+            )
+        else:
+            # "... d_in, d_in d_sae -> ... d_sae",
+            hidden_pre = self.hook_sae_acts_pre(sae_in @ self.W_enc + self.b_enc)
+            hidden_pre_noised = hidden_pre + (
+                torch.randn_like(hidden_pre) * self.cfg.noise_scale * self.training
+            )
+            feature_acts = self.activation_fn(hidden_pre_noised)
+        self.hook_sae_acts_post(feature_acts)
 
         return feature_acts, hidden_pre_noised
 
@@ -196,7 +215,7 @@ class TrainingSAE(SAE):
 
         # do a forward pass to get SAE out, but we also need the
         # hidden pre.
-        feature_acts, _ = self.encode_with_hidden_pre(sae_in)
+        feature_acts, hidden_pre = self.encode_with_hidden_pre(sae_in)
         sae_out = self.decode(feature_acts)
 
         # MSE LOSS
@@ -221,14 +240,29 @@ class TrainingSAE(SAE):
         # SPARSITY LOSS
         # either the W_dec norms are 1 and this won't do anything or they are not 1
         # and we're using their norm in the loss function.
-        weighted_feature_acts = feature_acts * self.W_dec.norm(dim=1)
+        if self.cfg.architecture == "gated":
+            # here hidden_pre is pi_gate aka gate pre-activations
+            # these actually aren't feature activations, but they're similar
+            weighted_feature_acts = self.activation_fn(hidden_pre) * self.W_dec.norm(
+                dim=1
+            )
+        else:
+            weighted_feature_acts = feature_acts * self.W_dec.norm(dim=1)
         sparsity = weighted_feature_acts.norm(
             p=self.cfg.lp_norm, dim=-1
         )  # sum over the feature dimension
 
+        if self.cfg.architecture == "gated":
+            # here hidden_pre is pi_gate aka gate pre-acts
+            aux_gate_sae_out = self.decode(self.activation_fn(hidden_pre), frozen=True)
+            per_item_aux_mse_loss = self.mse_loss_fn(aux_gate_sae_out, sae_in)
+            gated_aux_loss = per_item_aux_mse_loss.sum(dim=-1).mean()
+        else:
+            gated_aux_loss = 0.0
+
         l1_loss = (current_l1_coefficient * sparsity).mean()
 
-        loss = mse_loss + l1_loss + ghost_grad_loss
+        loss = mse_loss + l1_loss + ghost_grad_loss + gated_aux_loss
 
         return TrainStepOutput(
             sae_in=sae_in,
@@ -241,6 +275,11 @@ class TrainingSAE(SAE):
                 ghost_grad_loss.item()
                 if isinstance(ghost_grad_loss, torch.Tensor)
                 else ghost_grad_loss
+            ),
+            gated_aux_loss=(
+                gated_aux_loss.item()
+                if isinstance(gated_aux_loss, torch.Tensor)
+                else gated_aux_loss
             ),
         )
 

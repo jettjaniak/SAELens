@@ -50,12 +50,22 @@ from tests.unit.helpers import build_sae_cfg
             "hook_layer": 1,
             "d_in": 64,
         },
+        {
+            "model_name": "tiny-stories-1M",
+            "dataset_path": "roneneldan/TinyStories",
+            "tokenized": False,
+            "hook_name": "blocks.1.hook_resid_pre",
+            "hook_layer": 1,
+            "d_in": 64,
+            "architecture": "gated",
+        },
     ],
     ids=[
         "tiny-stories-1M-resid-pre",
         "tiny-stories-1M-resid-pre-L1-W-dec-Norm",
         "tiny-stories-1M-resid-pre-pretokenized",
         "tiny-stories-1M-hook-z",
+        "tiny-stories-1M-resid-pre-gated",
     ],
 )
 def cfg(request: pytest.FixtureRequest):
@@ -153,6 +163,7 @@ def test_sae_forward(training_sae: TrainingSAE):
         train_step_output.mse_loss
         + train_step_output.l1_loss
         + train_step_output.ghost_grad_loss
+        + train_step_output.gated_aux_loss
     )
 
     expected_mse_loss = (
@@ -218,6 +229,7 @@ def test_sae_forward_with_mse_loss_norm(
         train_step_output.mse_loss
         + train_step_output.l1_loss
         + train_step_output.ghost_grad_loss
+        + train_step_output.gated_aux_loss
     )
 
     if not training_sae.cfg.scale_sparsity_penalty_by_decoder_norm:

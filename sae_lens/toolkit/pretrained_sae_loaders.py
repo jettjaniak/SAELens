@@ -125,6 +125,8 @@ def connor_rob_hook_z_loader(
     cfg_dict = {
         "d_in": old_cfg_dict["act_size"],
         "d_sae": old_cfg_dict["dict_size"],
+        # TODO: is that OK?
+        "architecture": old_cfg_dict.get("architecture", "standard"),
         "dtype": "float32",
         "device": device if device is not None else "cpu",
         "model_name": "gpt2-small",
@@ -157,6 +159,10 @@ def load_pretrained_sae_lens_sae_components(
     # filter config for varnames
     cfg_dict["device"] = device
     cfg_dict["dtype"] = dtype
+
+    # TODO: is that OK?
+    if "architecture" not in cfg_dict:
+        cfg_dict["architecture"] = "standard"
 
     # # # Removing this since we should add it during instantiation of the SAE, not the SAE config.
     # # TODO: if we change our SAE implementation such that old versions need conversion to be
