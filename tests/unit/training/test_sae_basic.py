@@ -47,12 +47,22 @@ from tests.unit.helpers import build_sae_cfg
             "hook_layer": 1,
             "d_in": 64,
         },
+        {
+            "model_name": "tiny-stories-1M",
+            "dataset_path": "roneneldan/TinyStories",
+            "tokenized": False,
+            "hook_name": "blocks.1.hook_resid_pre",
+            "hook_layer": 1,
+            "d_in": 64,
+            "architecture": "gated",
+        },
     ],
     ids=[
         "tiny-stories-1M-resid-pre",
         "tiny-stories-1M-resid-pre-L1-W-dec-Norm",
         "tiny-stories-1M-resid-pre-pretokenized",
         "tiny-stories-1M-attn-out",
+        "tiny-stories-1M-resid-pre-gated",
     ],
 )
 def cfg(request: pytest.FixtureRequest):
@@ -72,6 +82,9 @@ def test_sae_init(cfg: LanguageModelSAERunnerConfig):
     assert sae.W_dec.shape == (cfg.d_sae, cfg.d_in)
     assert sae.b_enc.shape == (cfg.d_sae,)
     assert sae.b_dec.shape == (cfg.d_in,)
+    if cfg.architecture == "gated":
+        assert sae.r_mag.shape == (cfg.d_sae,)
+        assert sae.b_mag.shape == (cfg.d_sae,)
 
 
 def test_sae_fold_w_dec_norm(cfg: LanguageModelSAERunnerConfig):

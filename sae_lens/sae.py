@@ -35,6 +35,7 @@ class SAEConfig:
     activation_fn_str: str
     apply_b_dec_to_input: bool
     finetuning_scaling_factor: bool
+    architecture: str
 
     # dataset it was trained on details.
     context_size: int
@@ -53,7 +54,6 @@ class SAEConfig:
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> "SAEConfig":
-
         # rename dict:
         rename_dict = {  # old : new
             "hook_point": "hook_name",
@@ -75,6 +75,7 @@ class SAEConfig:
         return {
             "d_in": self.d_in,
             "d_sae": self.d_sae,
+            "architecture": self.architecture,
             "dtype": self.dtype,
             "device": self.device,
             "model_name": self.model_name,
@@ -175,6 +176,14 @@ class SAE(HookedRootModule):
             torch.zeros(self.cfg.d_in, dtype=self.dtype, device=self.device)
         )
 
+        if self.cfg.architecture == "gated":
+            self.b_mag = nn.Parameter(
+                torch.zeros(self.cfg.d_sae, dtype=self.dtype, device=self.device)
+            )
+            self.r_mag = nn.Parameter(
+                torch.zeros(self.cfg.d_sae, dtype=self.dtype, device=self.device)
+            )
+
         # scaling factor for fine-tuning (not to be used in initial training)
         # TODO: Make this optional and not included with all SAEs by default (but maintain backwards compatibility)
         if self.cfg.finetuning_scaling_factor:
@@ -235,19 +244,33 @@ class SAE(HookedRootModule):
         # apply b_dec_to_input if using that method.
         sae_in = self.hook_sae_input(x - (self.b_dec * self.cfg.apply_b_dec_to_input))
 
-        # "... d_in, d_in d_sae -> ... d_sae",
-        hidden_pre = self.hook_sae_acts_pre(sae_in @ self.W_enc + self.b_enc)
-        feature_acts = self.hook_sae_acts_post(self.activation_fn(hidden_pre))
+        if self.cfg.architecture == "gated":
+            # TODO: pre-act hooks
+            b_gate = self.b_enc
+            # "... d_in, d_in d_sae -> ... d_sae"
+            z = sae_in @ self.W_enc
+            pre_acts_mag = torch.exp(self.r_mag) * z + self.b_mag
+            acts_mag = self.activation_fn(pre_acts_mag)
+            pre_acts_gate = z + b_gate
+            acts_gate = (pre_acts_gate > 0).float()
+            feature_acts = acts_gate * acts_mag
+        else:
+            # "... d_in, d_in d_sae -> ... d_sae",
+            hidden_pre = self.hook_sae_acts_pre(sae_in @ self.W_enc + self.b_enc)
+            feature_acts = self.activation_fn(hidden_pre)
+        self.hook_sae_acts_post(feature_acts)
 
         return feature_acts
 
     def decode(
-        self, feature_acts: Float[torch.Tensor, "... d_sae"]
+        self, feature_acts: Float[torch.Tensor, "... d_sae"], frozen: bool = False
     ) -> Float[torch.Tensor, "... d_in"]:
         """Decodes SAE feature activation tensor into a reconstructed input activation tensor."""
+        W_dec = self.W_dec if not frozen else self.W_dec.detach()
+        b_dec = self.b_dec if not frozen else self.b_dec.detach()
         # "... d_sae, d_sae d_in -> ... d_in",
         sae_out = self.hook_sae_recons(
-            self.apply_finetuning_scaling_factor(feature_acts) @ self.W_dec + self.b_dec
+            self.apply_finetuning_scaling_factor(feature_acts) @ W_dec + b_dec
         )
 
         # handle hook z reshaping if needed.

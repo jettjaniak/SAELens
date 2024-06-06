@@ -129,3 +129,15 @@ def test_SparseAutoencoder_initialization_heuristic_init():
     assert torch.allclose(
         decoder_norms, torch.ones_like(decoder_norms) * 0.1, atol=5e-2
     )
+
+
+def test_SparseAutoencoder_initialization_gated():
+    cfg = build_sae_cfg(architecture="gated")
+    print(cfg.get_training_sae_cfg_dict())
+
+    sae = TrainingSAE.from_dict(cfg.get_training_sae_cfg_dict())
+
+    assert sae.b_mag.shape == (cfg.d_sae,)
+    assert sae.r_mag.shape == (cfg.d_sae,)
+    assert torch.allclose(sae.b_mag, torch.zeros_like(sae.b_mag), atol=1e-6)
+    assert torch.allclose(sae.r_mag, torch.zeros_like(sae.r_mag), atol=1e-6)
